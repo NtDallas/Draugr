@@ -256,15 +256,18 @@ PVOID   SpoofCall(
     if (!param.RUTS_ss || !param.RUTS_retaddr)
         return NULL;
 
-    param.trampoline = FindGadget(stackFrame->pGadget);
+    do
+    {
+        param.trampoline = FindGadget(stackFrame->pGadget);
+        param.Gadget_ss = CalculateFunctionStackSizeWrapper(param.trampoline);
+    } 
+    while(param.Gadget_ss == NULL);
 
-    param.Gadget_ss = CalculateFunctionStackSizeWrapper(param.trampoline);
-    //BeaconPrintf(CALLBACK_OUTPUT, "RET GADGET ADDR : %p", param.trampoline);
     if (!param.trampoline || !param.Gadget_ss)
         return NULL;
 
     void* retVal = SpoofStub(pArg1, pArg2, pArg3, pArg4, &param, pFunctionAddr, 8, pArg5, pArg6, pArg7, pArg8, pArg9, pArg10, pArg11, pArg12);
-    //BeaconPrintf(CALLBACK_OUTPUT, "ret val : %p", retVal);
     return retVal;
 }
+
 

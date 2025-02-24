@@ -126,8 +126,8 @@ section .text
         ; ----------------------------------------------------------------------
         ; Syscall stuff. Shouldn't affect performance even if a syscall isnt made
         ; ----------------------------------------------------------------------
-        mov    r10, rcx
-        mov    rax, [rdi + 72]
+        mov     r10, rcx
+        mov     rax, [rdi + 72]
         
         jmp    r11
 

@@ -223,7 +223,8 @@ BOOL InitFrameInfo(
 
 PVOID   SpoofCall(
     _In_    PSYNTHETIC_STACK_FRAME  stackFrame,
-    _In_    PVOID   pFunctionAddr,
+    _In_    PVOID                   pFunctionAddr,
+    _In_    DWORD                   dwSyscall,
     _In_    PVOID   pArg1,
     _In_    PVOID   pArg2,
     _In_    PVOID   pArg3,
@@ -239,8 +240,6 @@ PVOID   SpoofCall(
 )
 {
     PRM param = { 0 };
-
-    param.trampoline = stackFrame->pGadget;
 
     void* ReturnAddress = (void*)((UINT_PTR)stackFrame->frame1.pFunctionAddr + stackFrame->frame1.dwOffset);
     param.BTIT_ss = CalculateFunctionStackSizeWrapper(ReturnAddress);
@@ -265,6 +264,9 @@ PVOID   SpoofCall(
 
     if (!param.trampoline || !param.Gadget_ss)
         return NULL;
+
+    if(dwSyscall != 0)
+        param.ssn = dwSyscall;
 
     void* retVal = SpoofStub(pArg1, pArg2, pArg3, pArg4, &param, pFunctionAddr, 8, pArg5, pArg6, pArg7, pArg8, pArg9, pArg10, pArg11, pArg12);
     return retVal;

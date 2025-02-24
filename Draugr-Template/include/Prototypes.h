@@ -1,13 +1,13 @@
 #include <windows.h>
 
 #include "Vulcan.h"
-
+#include "Syscalls.h"
 
  /* --------------------------------
     Utils.s
 -------------------------------- */
 
-extern void* SpoofStub(...);
+extern void* SpoofStub(void*, ...);
 
  /* --------------------------------
     Spoof.c
@@ -15,7 +15,8 @@ extern void* SpoofStub(...);
 
 PVOID   SpoofCall(
     _In_    PSYNTHETIC_STACK_FRAME  stackFrame,
-    _In_    PVOID   pFunctionAddr,
+    _In_    PVOID                   pFunctionAddr,
+    _In_    DWORD                   dwSyscall,
     _In_    PVOID   pArg1,
     _In_    PVOID   pArg2,
     _In_    PVOID   pArg3,
@@ -32,4 +33,12 @@ PVOID   SpoofCall(
 
 BOOL InitFrameInfo(
     _In_	PSYNTHETIC_STACK_FRAME	stackFrame
+);
+
+ /* --------------------------------
+    Syscalls.c
+-------------------------------- */
+
+BOOL InitNtFunc(
+    _In_    PNT_FUNC    NtFunc
 );

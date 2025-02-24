@@ -31,13 +31,32 @@ The advantage of a synthetic stack frame is its execution speed and the ability 
 
 You need to dynamically resolve the address of the targeted function and call it using the SPOOF_CALL macro like this:
 
-```
+- API Call :
+
+```C
 HMODULE pKernel32 = GetModuleHandleA("Kernel32.dll");
 
 void* pVirtualALloc = (void*)GetProcAddress(pKernel32, "VirtualAlloc");
 
-void *pAllocatedAddr = SPOOF_CALL(&stackFrame, pVirtualALloc, NULL, 1024 * 1024, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+	lpAddressVirtualAlloc = SPOOF_CALL(&stackFrame, pVirtualAlloc, NO_SYCALL, NULL, 0x1000, MEM_COMMIT, PAGE_READWRITE);
 ```
+- Indirect Syscall :
+
+    - You need to add the targeted function in Syscalls.h
+    - Solve jmp addr and SSN in Syscalls.c 
+
+        ```C
+        if (!
+            HalosGate(GetProcAddress(hModNtdll, "NtAllocateVirtualMemory"), &NtFunc->NtAllocateVirtualMemory.wSyscall, &NtFunc->NtAllocateVirtualMemory.pJmpAddr)
+        )
+            return FALSE;
+        ```
+    - Call function 
+
+        ```C
+          	NTSTATUS status = SPOOF_CALL(&stackFrame, ntFunc.NtAllocateVirtualMemory.pJmpAddr, ntFunc.NtAllocateVirtualMemory.wSyscall, (HANDLE)-1, &lpAddressNtAlloc, 0, &sDataSize, MEM_COMMIT, PAGE_READWRITE);
+        ```
+
 
 The first argument is a pointer to the ```SYNTHETIC_STACK_FRAME``` structure, and the second is the ```address of the function```.
 
@@ -51,7 +70,7 @@ You can modify the module used to find the gadget as well as the fake frame.
 
 
 
-```
+```C
 BOOL InitFrameInfo(
     _In_	PSYNTHETIC_STACK_FRAME	stackFrame
 )
@@ -96,7 +115,7 @@ l.121 -> 124
 mov    [rdi + 16], rbx             ; original rbx is stored into "rbx" member
 lea    rbx, [rel fixup]            ; Fixup address is moved into rbx
 mov    [rdi], rbx                  ; Fixup member now holds the address of Fixup
- mov    rbx, rdi                    ; Address of param struct (Fixup) is moved into rbx
+mov    rbx, rdi                    ; Address of param struct (Fixup) is moved into rbx
 
 
 l.135 -> 142
@@ -115,7 +134,7 @@ When you make an API call using the ```SPOOF_CALL``` macro, the function searche
 This part of the code can be improved by using a linked list to store all gadgets instead of limiting it to 10. Alternatively, it could allocate a buffer to store all gadgets and then list them again.
 
 However, the limit of 10 gadgets is sufficient.
-```
+```C
 PVOID FindGadget(
 	_In_	PVOID	pModuleAddr
 )
@@ -155,12 +174,43 @@ PVOID FindGadget(
 }
 ```
 
+## Stackframe
+
+Stackframe example with function call :
+- Indirect Syscall with NtAllocateVirtualMemory  :
+
+```
+00 00000000`00dcf658 00007ffa`78ea6658     ntdll!NtAllocateVirtualMemory+0x12
+01 00000000`00dcf660 00007ffa`78f2c069     KERNELBASE!VirtualAlloc+0x48
+02 00000000`00dcf6a0 00007ffa`79f27374     KERNELBASE!wil_details_GetCurrentFeatureEnabledState+0xd9
+03 00000000`00dcf700 00007ffa`7b41cc91     KERNEL32!BaseThreadInitThunk+0x14
+04 00000000`00dcf730 00000000`00000000     ntdll!RtlUserThreadStart+0x21
+```
+
+- VirtualAlloc :
+
+```
+00 00000000`00dcf658 00007ffa`78ea6658     ntdll!NtAllocateVirtualMemory+0x12
+01 00000000`00dcf660 00007ffa`78f2c069     KERNELBASE!VirtualAlloc+0x48
+02 00000000`00dcf6a0 00007ffa`79f27374     KERNELBASE!wil_details_GetCurrentFeatureEnabledState+0xd9
+03 00000000`00dcf700 00007ffa`7b41cc91     KERNEL32!BaseThreadInitThunk+0x14
+04 00000000`00dcf730 00000000`00000000     ntdll!RtlUserThreadStart+0x21
+```
+
+- VirtualFree :
+
+```
+00 00000000`00dcf688 00007ffa`78f24061     KERNEL32!VirtualFreeStub
+01 00000000`00dcf690 00007ffa`79f27374     KERNELBASE!WerpGetHeaderFromProcess+0x547b9
+02 00000000`00dcf700 00007ffa`7b41cc91     KERNEL32!BaseThreadInitThunk+0x14
+03 00000000`00dcf730 00000000`00000000     ntdll!RtlUserThreadStart+0x21
+```
+
 ### Credit
 
 - https://www.unknowncheats.me/forum/anti-cheat-bypass/268039-x64-return-address-spoofing-source-explanation.html
 - https://github.com/susMdT/LoudSunRun
 - https://github.com/WithSecureLabs/CallStackSpoofer
-
 
 
 ## Draugr-Strike
@@ -169,19 +219,31 @@ PVOID FindGadget(
 
 !! WARNING !!
 
-Sometimes the injection fails. This code is just a PoC to demonstrate how to use the template. Do not use it in production !
+Sometimes the injection fails. This code is just a PoC to demonstrate how to use the template. Use it with precaution !
 
 This example uses kernel32 with a synthetic stack frame to execute shellcode in a remote process.
 
 - Allocate memory with RW permissions with.
 - Write shellcode into the remote process.
 - Change memory protection to RX.
-- Create a spoofed thread at ```RtlUserThreadStart+0x21```.
-- Resume the thread.
 
-Stackframe view from windbg :
+- Threadspoof :
+    - Create a spoofed thread at ```RtlUserThreadStart+0x21```.
+    - Resume the thread.
+- Earlybird :
+    - Add an APC on created thread to execute shellcode
+    - Resume thread
 
-![stackframe](img/img_bof_1.png)
+Compilation :
+
+- build thradspoof
+- build earlybird
+
+Support implicit and explicit injction
+
+More information :
+
+https://www.cobaltstrike.com/blog/process-injection-update-in-cobalt-strike-4-5
 
 
 ### Credit
@@ -189,7 +251,3 @@ Stackframe view from windbg :
 - https://www.unknowncheats.me/forum/anti-cheat-bypass/268039-x64-return-address-spoofing-source-explanation.html
 - https://github.com/susMdT/LoudSunRun
 - https://github.com/WithSecureLabs/CallStackSpoofer
-- https://github.com/apokryptein/secinject
-- https://github.com/ScriptIdiot/sw2-secinject (90% of cna script is ctrl+c/ctrl+v)
-
-Also, big thanks to @OpenAI and ChatGPT for the orthography correction of the README.

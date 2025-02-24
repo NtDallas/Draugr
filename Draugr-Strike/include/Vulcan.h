@@ -16,6 +16,11 @@ typedef struct _SYNTHETIC_STACK_FRAME {
     PVOID       pGadget;
 } SYNTHETIC_STACK_FRAME, *PSYNTHETIC_STACK_FRAME;
 
+typedef struct _CALL_INFO {
+    PVOID   pAddr;
+    DWORD   wSyscall;    
+} CALL_INFO, *PCALL_INFO;
+
 typedef struct
 {
     PVOID       Fixup;             // 0

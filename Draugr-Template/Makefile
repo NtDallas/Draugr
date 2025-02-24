@@ -15,6 +15,8 @@ prebuild:
 core:
 	@ nasm -f win64 src/asm/Utils.s -o bin/utils.o 
 	@ $(CCX64) -c src/core/Spoof.c $(CFLAGS) -o bin/spoof.o
+	@ $(CCX64) -c src/core/Syscalls.c $(CFLAGS) -o bin/syscalls.o
+
 
 bof:
 	@ $(CCX64) -c src/Main.c $(CFLAGS) -o bin/main.o
@@ -25,5 +27,6 @@ postbuild:
 	@ rm bin/utils.o
 	@ rm bin/main.o
 	@ rm bin/spoof.o
+	@ rm bin/syscalls.o
 
 

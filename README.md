@@ -166,6 +166,17 @@ When syscall executes RET:
 
 The shadow stack is hardware-protected with supervisor-only access rights, making it impossible for user-mode code to modify. Since Draugr relies on writing fabricated return addresses that differ from the actual call chain, CET detects the violation on the first RET instruction after stack manipulation. This represents a complete architectural mitigation with no user-mode bypass possible.
 
+
+# Compilation
+
+The project targets MinGW (GCC 13). Kali’s default MinGW is GCC 14, which triggers build errors. Use the provided Dockerfile to compile with MinGW-GCC 13.
+
+```
+sudo apt install docker.io
+docker build -t ubuntu-gcc-13:latest .
+docker run --rm -it -v "$PWD":/work -w /work ubuntu-gcc-13:latest make
+```
+
 # Credit
 
 - https://www.unknowncheats.me/forum/anti-cheat-bypass/268039-x64-return-address-spoofing-source-explanation.html
@@ -178,13 +189,3 @@ The shadow stack is hardware-protected with supervisor-only access rights, makin
 For the kernel; same for userland
 - https://learn.microsoft.com/en-en/windows-server/security/kernel-mode-hardware-stack-protection
 - https://www.synacktiv.com/sites/default/files/2025-06/sstic_windows_kernel_shadow_stack_mitigation.pdf
-
-# Compilation
-
-The project targets MinGW (GCC 13). Kali’s default MinGW is GCC 14, which triggers build errors. Use the provided Dockerfile to compile with MinGW-GCC 13.
-
-```
-sudo apt install docker.io
-docker build -t ubuntu-gcc-13:latest .
-docker run --rm -it -v "$PWD":/work -w /work ubuntu-gcc-13:latest make
-```

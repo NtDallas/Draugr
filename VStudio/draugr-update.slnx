@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="draugr-update.vcxproj" Id="578cda46-fde7-4ede-8b0f-932a7dc4bba5" />
+</Solution>
